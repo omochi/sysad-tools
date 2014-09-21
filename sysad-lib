@@ -67,7 +67,7 @@ user_exists(){
 	dscl . -read "/Users/$1" > /dev/null 2>&1
 }
 get_user_home(){
-	( dscl . -read "/Users/$1" > /dev/null 2>&1 ) | grep NFSHomeDirectory | cut -d ' ' -f 2
+	dscl . -read "/Users/$1" 2> /dev/null | grep NFSHomeDirectory | cut -d ' ' -f 2
 }
 else
 user_exists(){
@@ -99,15 +99,17 @@ sed_overwrite(){
 # $1: user
 # $2: pubkey file
 ssh_pubkey_add(){
-	local keys_file ; keys_file=$(get_user_keys_file "$1")
+	local user ;      user="$1"
+	local group ;     group=$(id -g "$user")
+	local keys_file ; keys_file=$(get_user_keys_file "$user")
 	local ssh_dir ;   ssh_dir=$(dirname "$keys_file")
 
 	mkdir -p "$ssh_dir"
 	chmod 700 "$ssh_dir"
-	chown "$user:$user" "$ssh_dir"
+	chown "$user:$group" "$ssh_dir"
 	touch "$keys_file"
 	chmod 600 "$keys_file"
-	chown "$user:$user" "$keys_file" 	
+	chown "$user:$group" "$keys_file" 	
 
 	cat "$2" >> "$keys_file"
 }
