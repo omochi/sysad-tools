@@ -5,14 +5,14 @@
 `.ssh/authorized_keys`を編集するコマンドがあります。
 
 ~~~
-sysad-pubkey show
+$ sysad-pubkey show
 ~~~
 
 ユーザーの公開鍵のAAフィンガープリントを一覧表示します。
 壊れた行や二重登録の検出もします。
 
 ~~~
-sysad-pubkey add
+$ sysad-pubkey add
 ~~~
 
 公開鍵を追加します。
@@ -20,7 +20,7 @@ sysad-pubkey add
 二重登録を防止します。
 
 ~~~
-sysad-pubkey delete
+$ sysad-pubkey delete
 ~~~
 
 公開鍵を1つ削除します。
@@ -30,7 +30,7 @@ sysad-pubkey delete
 # インストール
 
 ~~~
-./install
+$ sudo ./install
 ~~~
 
 `/usr/local/sbin`にインストールされるので、
