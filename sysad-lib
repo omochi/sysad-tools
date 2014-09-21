@@ -85,7 +85,7 @@ get_key_fingerprint(){
 	ssh-keygen -lvf "$1" 2> /dev/null
 }
 get_file_line_num(){
-	wc -l "$1" | cut -d ' ' -f 1
+	wc -l "$1" | awk '{print $1}'
 }
 # $1: file
 # $2...: sed args

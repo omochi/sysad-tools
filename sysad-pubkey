@@ -141,7 +141,9 @@ show_key_at_line(){
 		echo "[警告] ${no}行目の鍵データが壊れています。"
 		return 0
 	fi
-	echo "${no}行目の鍵データを表示します。"
+	echo "${no}行目の鍵を表示します。"
+	cat "$pubkey_file"
+	echo "フィンガープリントを表示します。"
 	cat "$fingerprint_file"
 	
 	local find_no; find_no=$(ssh_pubkey_find "$user" "$pubkey_file" $((no+1)))
