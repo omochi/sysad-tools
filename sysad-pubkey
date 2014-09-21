@@ -1,0 +1,199 @@
+#!/bin/bash
+set -ueo pipefail
+script_dir=$(cd "$(dirname "$0")" ; pwd)
+source "$script_dir/sysad-lib"
+
+usage(){
+	cat << EOT
+sysad-pubkey command user
+  commandは必須です。
+  それ以外の引数は、指定しない場合対話モードになります。
+  command指定済みの個別のコマンドが用意されています。
+  
+  command: 下記のいずれか
+  -h: このヘルプを表示する。
+
+
+sysad-pubkey-add
+  公開鍵を.ssh/authorized_keysに追加します。
+  公開鍵が既に追加されていないかをチェックします。
+  
+  追加する公開鍵は標準入力から与えます。
+
+	
+sysad-pubkey-show
+  公開鍵を一覧表示します。
+  鍵のデータが壊れていないかチェックをします。
+  重複登録されていないかチェックをします。
+  -l: 指定した行の鍵だけを表示します。
+
+
+sysad-pubkey-delete
+  公開鍵を削除します。
+  -l: 公開鍵の書かれている行数を指定します。
+
+EOT
+
+}
+
+main(){
+	enable_exit_handler
+	init_root_temp_dir
+
+	case $0 in
+	*-add)    main_dispatch "add" "$@" ;;
+	*-show)   main_dispatch "show" "$@" ;;
+	*-delete) main_dispatch "delete" "$@" ;;
+	*)        main_dispatch "$@" ;;
+	esac
+}
+
+main_dispatch(){	
+	user=""	
+	line_no=""
+
+	if [[ $# -lt 1 ]] ; then
+		echoe "コマンドが指定されていません。"
+		usage
+		return 1
+	fi
+
+	local command; command="main_${1}"
+	if ! function_exists "$command" ; then
+		echoe "コマンド[$1]はありません。"
+		usage
+		return 1
+	fi
+	shift
+
+	while getopts hl: OPT ; do
+		case $OPT in
+		h)  usage ; return 0 ;;
+		l)  line_no=$OPTARG ;;
+		\?) echo "skip" ;;
+		esac
+	done
+	shift $(( OPTIND - 1 ))
+
+	if [[ $# -ge 1 ]] ; then
+		user=$1 ; shift
+	fi
+
+	if [[ -z $user && -t 0 ]] ; then
+		local current ; current=${SUDO_USER:-$USER}
+		read -p "対象のユーザを入力してください。($current): " user
+		user=${user:-$current}
+	fi
+	if [[ -z $user ]] ; then
+		echoe "ユーザが指定されていません。" ; return 1
+	fi
+	if ! user_exists "$user" ; then
+		echoe "ユーザ[$user]は存在しません。" ; return 1
+	fi
+	keys_file=$(get_user_keys_file "$user")
+
+	eval $command
+}
+
+main_add(){
+	if [[ -t 0 ]] ; then
+		echo "公開鍵を入力してください。:"
+	fi
+	local pubkey
+	read pubkey	
+	local pubkey_file
+	pubkey_file=$(make_temp_file "pubkey")
+	echo "$pubkey" > "$pubkey_file"
+
+	local fingerprint_file
+	fingerprint_file=$(make_temp_file "finger_print")
+	if ! get_key_fingerprint "$pubkey_file" > "$fingerprint_file" ; then
+		echoe "公開鍵のデータが壊れていました。" ; return 1
+	fi
+
+	local pos ; pos=$(ssh_pubkey_find "$user" "$pubkey_file")
+	if [[ $pos -ne -1 ]] ; then
+		echoe "この公開鍵は既に${pos}行目に追加されています。" ; return 1
+	fi
+	echo "公開鍵の情報を表示します。"
+	cat "$fingerprint_file"
+
+	ask_if_terminal "公開鍵の追加を実行して良いですか？"
+
+	ssh_pubkey_add "$user" "$pubkey_file" 
+}
+
+# $1: line no
+show_key_at_line(){
+	local no; no=$1
+	local line
+	line=$(sed -n -e "${no}p" "$keys_file")
+	if [[ "$line" == "" ]] ; then
+		echo "[警告] ${no}行目に空行があります。"
+		return 0
+	fi
+	local pubkey_file
+	pubkey_file=$(make_temp_file "pubkey")
+	echo "$line" > "$pubkey_file"
+	local fingerprint_file
+	fingerprint_file=$(make_temp_file "fingerprint")
+	if ! get_key_fingerprint "$pubkey_file" > "$fingerprint_file" ; then
+		echo "[警告] ${no}行目の鍵データが壊れています。"
+		return 0
+	fi
+	echo "${no}行目の鍵データを表示します。"
+	cat "$fingerprint_file"
+	
+	local find_no; find_no=$(ssh_pubkey_find "$user" "$pubkey_file" $((no+1)))
+	if [[ $find_no -ne -1 ]] ; then
+		echo "[警告] ${find_no}行目に同じ鍵が登録されています。"
+	fi
+}
+
+check_line_range(){
+	if [[ $1 -lt 0 || $1 -gt $2 ]] ; then
+		echoe "${1}行目のデータはありません。"
+		return 1
+	fi
+}
+
+main_show(){
+	if [[ ! -f "$keys_file" ]] ; then
+		echo "鍵ファイルがありません。"
+		echo "  $keys_file"
+		return 0
+	fi
+	local n ; n=$(get_file_line_num "$keys_file")
+	if [[ -n $line_no ]] ; then
+		check_line_range $line_no $n
+		show_key_at_line $line_no
+		return 0
+	fi
+	local i
+	for (( i = 1; i <= n ; i++)) ; do
+		show_key_at_line $i
+	done
+}
+
+main_delete(){
+	if [[ ! -f "$keys_file" ]] ; then
+		echo "鍵ファイルがありません。"
+		echo "  $keys_file"
+		return 0
+	fi
+	if [[ -z $line_no && -t 0 ]] ; then
+		echo "鍵データを表示します。"
+		main_show
+		read -p "何行目を削除しますか？: " line_no
+	fi
+	if [[ -z $line_no ]] ; then
+		echoe "行番号が指定されていません。"
+		return 1
+	fi
+	local n ; n=$(get_file_line_num "$keys_file")
+	check_line_range $line_no $n
+	
+	sed_overwrite "$keys_file" -e "${line_no}d"
+}
+
+main "$@"
